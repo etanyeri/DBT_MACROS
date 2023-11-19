@@ -1,0 +1,82 @@
+{% macro create_local_database(username, reset_environment = false) %}
+
+{%- set standard_schemas = ["ABC","XYZ"] %}
+{%- set secure_schemas = ["ABC","XYZ"] %}
+{% set db_name %}
+ANALYTICS_LOCAL_INGEST_{{ username|upper }}
+{% endset %}
+
+{% do log ('Attempting to create database ' ~ db_name ~ ' with role ' ~ target.role ~ '.' , True) %}
+{% do log ('If this errors with Insufficient Privileges, please ask a GAI Admin to grant appropriate permissions as found here: <>.', True) %}
+
+{% set create_db_statement %}
+CREATE TRANSIENT DATABASE IF NOT EXISTS {{ db_name }} COMMENT = 'This database is used by a developer for local dev and testing'
+{% endset %}
+{% set db_creation = dbt.run_query(create_db_statement) %}
+{% do log ("Database Creation Response: " ~ db_creation.columns[0].values(), True) %}
+{% set assign_db_perms_query %}
+GRANT USAGE ON DATABASE {{ db_name }} TO ROLE GAI_LOCAL_READONLY_ROLE;
+{% endset %}
+{% set assign_db_perms_results = dbt.run_query(assign_db_perms_query) %}
+
+{# Check if Schema does not exist OR Environment is being reset #}
+{% if execute %}
+{% for schema in standard_schemas %}
+{% set schema_exists_query %}
+SELECT SCHEMA_NAME FROM {{ db_name }}.INFORMATION_SCHEMA.SCHEMATA
+WHERE SCHEMA_NAME = '{{ schema }}'
+{% endset %}
+{% set schema_exists_results = dbt.run_query(schema_exists_query) %}
+
+    {# Create if Schema does not exist OR Environment is being reset #}
+    {% if schema_exists_results|length == 0 or reset_environment == True %}
+      {% set create_schema_query %}
+        CREATE OR REPLACE SCHEMA {{ db_name }}.{{ schema }} WITH MANAGED ACCESS;
+      {% endset %}
+      {% set create_schema_results = dbt.run_query(create_schema_query) %}
+      {% do log("Schema Creation Results: " ~ create_schema_results.columns[0].values(), True) %}
+      {% set assign_schema_query %}
+        GRANT USAGE ON SCHEMA {{ db_name }}.{{ schema }} TO ROLE GAI_LOCAL_READONLY_ROLE;
+      {% endset %}
+
+      {% set assign_future_tables_query %}
+        GRANT SELECT ON FUTURE TABLES IN SCHEMA {{ db_name }}.{{ schema }} TO ROLE GAI_LOCAL_READONLY_ROLE;
+      {% endset %}
+      {% set assign_future_views_query %}
+        GRANT SELECT ON FUTURE VIEWS IN SCHEMA {{ db_name }}.{{ schema }} TO ROLE GAI_LOCAL_READONLY_ROLE;
+      {% endset %}
+
+      {% do log("Assigning GAI_LOCAL_READONLY_ROLE Readonly Permissions to " ~ db_name ~ "." ~ schema, True) %}
+
+      {% set assign_schema_result = dbt.run_query(assign_schema_query) %}
+      {% set assign_future_tables_result = dbt.run_query(assign_future_tables_query) %}
+      {% set assign_future_views_result = dbt.run_query(assign_future_views_query) %}
+
+
+    {# Take no action as schema exists and reset_environment is false #}
+    {% elif schema_exists_results|length > 0 and reset_environment == False %}
+      {% do log("Schema " ~ db_name ~ "." ~ schema ~ " already exists and reset_environment is set to False. No action taken", True ) %}
+    {% endif %}
+{% endfor %}
+{% for schema in secure_schemas %}
+  {% set schema_exists_query %}
+      SELECT SCHEMA_NAME FROM {{ db_name }}.INFORMATION_SCHEMA.SCHEMATA
+      WHERE SCHEMA_NAME = '{{ schema }}'
+  {% endset %}
+  {% set schema_exists_results = dbt.run_query(schema_exists_query) %}
+
+    {# Create if Schema does not exist OR Environment is being reset #}
+    {% if schema_exists_results|length == 0 or reset_environment == True %}
+      {% set create_schema_query %}
+        CREATE OR REPLACE SCHEMA {{ db_name }}.{{ schema }} WITH MANAGED ACCESS;
+      {% endset %}
+        {% set create_schema_results = dbt.run_query(create_schema_query) %}
+        {% do log("Schema Creation Results: " ~ create_schema_results.columns[0].values(), True) %}
+    {# Take no action as schema exists and reset_environment is false #}
+    {% elif schema_exists_results|length > 0 and reset_environment == False %}
+      {% do log("Secure Schema " ~ db_name ~ "." ~ schema ~ " already exists and reset_environment is set to False. No action taken", True ) %}
+    {% endif %}
+{% endfor %}
+{% endif %}
+
+{% endmacro %}
