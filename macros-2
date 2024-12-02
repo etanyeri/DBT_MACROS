@@ -3,7 +3,7 @@
     {# List of ANALYTICS_PROD_INGEST schemas to be shared. UPDATE AS REQUIRED. #}
     {%- set schemas_to_share = ['JIRA', 'SFDC', 'ZUORA'] -%}
     {% set db_to_share = target.database %}
-    {% set share_name = 'AVALARA_' + db_to_share %}
+    {% set share_name = 'COMPANYNAME_' + db_to_share %}
     {%- set schema_grants_list = [] %}
     {%- set table_grants_list = [] %}
 
